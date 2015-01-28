@@ -3,13 +3,8 @@ var net_utils = require('./net_utils');
 exports.hook_data_post = function (next, connection) {
     var txn = connection.transaction;
 
-    // Get the sender domain from the first recipient
-    // Note: there could be multiple recipients...
     var domain = txn.mail_from.host;
-    if (!domain) {
-        // null sender
-        return next();
-    }
+    if (!domain) return next();  // null-sender
     domain = domain.toLowerCase();
 
     // Get results from connect.fcrdns plugin
@@ -23,26 +18,18 @@ exports.hook_data_post = function (next, connection) {
         if (fcrdns_domain === org_domain) org_matches_fcrdns = true;
     }
 
-    // Load domain list
-    var domain_list = this.config.get('domain_list', 'list');
-    connection.loginfo(this, 'domain list="' + domain_list.join(',') + '"');
+    // Load configuration file
+    var cfg = this.config.get('fcrdns.domaincheck.ini')
 
-    // Found domain in our list; modify the subject
-    if (!org_matches_fcrdns) {
-        // Save existing subject and remove it
+    // Debug logging
+    if (cfg.main[domain] !== undefined) {
+        connection.loginfo(this, 'found domain in configuration file, looking for match: ' + (cfg.main[domain] || domain));
+    }
+
+    if (!org_matches_fcrdns || (cfg.main[domain] && cfg.main[domain] !== fcrdns_domain)) {
         var subject = txn.header.get_decoded('Subject');
         txn.remove_header('Subject');
-
-        // See if this domain is in our list
-        connection.loginfo(this, 'checking domain: ' + domain + ' result:' + domain_list.indexOf(domain));
-        if (domain_list.indexOf(domain) !== -1) {
-            // Domain doesn't match FCrDNS domain
-            subject = "[NO_FCRDNS] " + subject;
-        } else {
-            subject = "[SUSPECT] " + subject;
-        }
-
-        // Add subject header back in to the message
+        subject = '[SUSPECT] ' + subject;
         txn.add_header('Subject', subject);
     }
 
